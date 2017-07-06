@@ -1,0 +1,123 @@
+input {
+  beats {
+    port => 5044
+    type => "filebeat"
+  }
+  udp {
+    port => 5555
+    codec => json
+    type => "json"
+  }
+  tcp {
+    port => 5555
+    codec => json_lines
+    type => "json_lines"
+  }
+}
+
+
+filter {
+  if [log_type] == "cronjob" {
+    grok {
+      match => [
+        "message", "%{SYSLOGTIMESTAMP:syslog_timestamp} %{DATA}(?:\[%{POSINT:cronjob_pid}\])?: %{GREEDYDATA:cronjob_message}"
+      ]
+    }
+  }
+  if [log_type] == "nginx_error" {
+    grok {
+      match => [
+        "message", "%{DATESTAMP:log_timestamp} %{DATA} client: %{IPV4:client_ip}, %{DATA} [host: \"%{HOSTNAME:http_host}\"|%{DATA}]"
+      ]
+    }
+  }
+  else if [log_type] == "ats_error" {
+    grok {
+      match => [
+        "message", "%{DATA:log_timestamp} %{DATA}"
+      ]
+    }
+    mutate {
+      gsub => [
+        "log_timestamp", "[\.hms]", ""
+      ]
+    }
+  }
+
+  else if [log_type] == "pd_error" {
+    grok {
+      match => [
+        "message", "%{DATA:log_timestamp} \[pool-%{INT:pd_pool}-thread-%{INT:pd_thread}\] %{WORD:severity} %{DATA}",
+        "message", "%{DATA:log_timestamp} \[Thread-%{INT:pd_thread}\] %{WORD:severity} %{DATA}",
+        "message", "%{DATA:log_timestamp} \[%{DATA}\] %{WORD:severity} %{DATA}"
+      ]
+    }
+    mutate {
+      lowercase => [ "severity" ]
+    }
+  }
+
+  mutate {
+    add_field => [ "received_at", "%{@timestamp}" ]
+  }
+  date {
+    match => [ "log_timestamp", "MMM  d HH:mm:ss", "MMM dd HH:mm:ss", "dd/MMM/YYYY:HH:mm:ss Z", "YY/MM/dd HH:mm:ss", "YYYY-MM-dd HH:mm:ss.SSS", "ISO8601", "YYYYMMddHHmmss" ]
+    target => "@timestamp"
+    locale => "en"
+    add_tag => [ "tmatch" ]
+  }
+  mutate {
+    add_field => [ "region", "default_region" ]
+    add_field => [ "vpc", "default_vpc" ]
+    remove_field => [ "input_type" ]
+    remove_field => [ "log_timestamp" ]
+    gsub => [
+      "host", "ip-", "",
+      "host", "-", "."
+      ]
+  }
+  ruby {
+    code => "event.set('latency_receiving', Time.iso8601(event.get('received_at').to_s).to_f - Time.iso8601(event.get('@timestamp').to_s).to_f)"
+  }
+  ruby {
+    code => "event.set('latency_processing', Time.now().to_f - Time.iso8601(event.get('received_at').to_s).to_f)"
+  }
+}
+
+output {
+    elasticsearch {
+      hosts => "search-logging53-kapfvpvivflrnccxvmbec27lii.us-east-1.es.amazonaws.com:80"
+      manage_template => false
+      index => "%{type}-%{+YYYY.MM.dd}"
+    }
+  }
+
+    statsd {
+      increment => [
+        "%{log_type}"
+      ]
+    }
+    statsd {
+      timing => {
+        "latency_receiving" => "%{latency_receiving}"
+        "latency_processing" => "%{latency_processing}"
+      }
+    }
+}
+
+#test
+#input {
+#  tcp {
+#    port => 5555
+#  }
+#}
+#
+#output {
+#  elasticsearch {
+#    hosts => "search-logging53-kapfvpvivflrnccxvmbec27lii.us-east-1.es.amazonaws.com:80"
+#    manage_template => false
+#    index => "%{[@metadata][beat]}-%{+YYYY.MM.dd}"
+#    document_type => "%{[@metadata][type]}"
+#  }
+#}
+
