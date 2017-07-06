@@ -1,0 +1,12 @@
+filebeat.prospectors:
+- type: log
+  paths:
+    - /var/log/*.log
+output.logstash:
+  hosts: ["localhost:5044"]
+output.elasticsearch:
+  hosts: ["localhost:9200"]
+  template.name: "filebeat"
+  template.fields: "fields.yml"
+  template.overwrite: false
+

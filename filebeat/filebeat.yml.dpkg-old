@@ -1,0 +1,25 @@
+# Use 'lfattr /path/to/filename' to view ansible_managed string
+
+
+filebeat:
+    close_older: 15m
+    idle_timeout: 5s
+    prospectors:
+    - input_type: log
+      paths:
+        - /var/log/*.log
+#    - type: cron
+#        fields:
+#            log_type: cron
+#        fields_under_root: true
+#        input_type: log
+#        paths:
+#        - /var/log/cronjob.log
+output:
+    logstash:
+        hosts:
+        - 127.0.0.1:5044
+    @metadata": { 
+       "beat": "filebeat", 
+       "type": "doc1" 
+    }
